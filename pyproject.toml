@@ -1,0 +1,27 @@
+[project]
+name = "decision-aware-forecasting"
+version = "0.0.1"
+description = "Reference implementation: when does forecast accuracy pay? Decision-aware forecasting + inventory benchmark and LLM-agent planner study."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["simulator*", "forecasting*", "analysis*", "agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["simulator/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]

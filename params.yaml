@@ -1,0 +1,65 @@
+# SYNTHETIC ASSUMPTIONS. Every cost, lead time and service target in this file is a synthetic
+# assumption chosen for a reference implementation. None is an observed value for any company,
+# product or supplier. Spec: docs/simulator_spec.md (section 7). Decision log: docs/assumptions.md.
+
+sim_version: "1.0.0"
+
+simulation:
+  mode: lost_sales            # lost_sales | backorder (backorder is for validation tests only)
+  review_period_weeks: 1      # R; orders only when t % R == 0
+  warmup_weeks: 8             # excluded from all metrics
+  eval_weeks: 52
+  initial_on_hand: steady_state   # steady_state -> policy's S at t = 0, empty pipeline
+  seeds: [0, 1, 2]
+
+lead_time:                    # SYNTHETIC
+  distribution: lognormal_shock   # lognormal_shock | deterministic (tests (a), (b), (e))
+  fixed_weeks: 2              # used only when distribution == deterministic
+  mean_weeks: 2.0
+  cv: 0.3                     # lognormal, discretized by rounding
+  min_weeks: 1
+  max_weeks: 6                # max_weeks + R must be <= forecast.max_horizon_weeks
+  shock_prob: 0.05            # per-week chance an order slot is delayed
+  shock_weeks: 2
+  # No overtaking: arrival A_t = max(t + L_t, A_{t-1}). Not configurable (decision D4).
+  pmf_estimation_weeks: 200000    # long run used to estimate the effective lead-time pmf
+  pmf_estimation_seed: 12345
+
+costs:                        # SYNTHETIC
+  holding_rate_annual: 0.25   # h = rate / 52 * unit_price, per unit-week on ending on-hand
+  default_unit_price: 1.0     # used when a dataset has no prices (auto-parts)
+  stockout_to_holding_ratio: 9    # p = ratio * h, per lost unit (tau = 0.90)
+  fixed_order_cost: 0.0       # K = 0 in core scope (decision D2)
+
+policy:
+  name: base_stock
+  quantile_source: critical_ratio # core: tau = p/(p+h). service_target is a sensitivity arm only
+  n_paths: 2000               # Monte Carlo paths for protection-interval demand
+
+service:                      # SYNTHETIC; reported against in core, used as tau only in its arm
+  target: 0.95
+
+forecast:
+  max_horizon_weeks: 8
+  bootstrap_min_origins: 26   # fewer -> pool residual vectors within demand segment
+
+# Sensitivity grids (analysis D). SYNTHETIC.
+sensitivity:
+  holding_rate_annual: [0.15, 0.25, 0.40]
+  stockout_to_holding_ratio: [1, 4, 9, 19, 49, 99]
+  review_period_weeks: [1, 2]
+  lead_time_mean_weeks: [1, 2, 4]   # 4 is heavily clipped by max_weeks = 6; read with care
+  lead_time_cv: [0.0, 0.3, 0.6]
+  shock_prob: [0.0, 0.05, 0.15]
+  quantile_source: [critical_ratio, service_target]
+  service_target: [0.90, 0.95, 0.99]
+
+# Optional arm, outside core scope (decision D2). Not built in v1.
+optional_ss_arm:
+  enabled: false
+  fixed_order_cost: [5.0, 20.0]
+
+# Medtech analog (RQ2, auto-parts data). An analog only, not medtech data. SYNTHETIC.
+medtech_analog:
+  stockout_to_holding_ratio: [20, 50, 100]
+  service_target: 0.99

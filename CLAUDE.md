@@ -32,6 +32,6 @@ ruff check . && ruff format --check . && pytest
   simulator and required tests (a)-(f) from file 03. G1 simulator review due by Oct 19.
 
 ## Conventions
-- Git identity is repo-local (agiri5). Commit messages end with the Co-Authored-By line for
-  the model used.
+- Git identity is repo-local (agiri5). Commit messages carry no tool attribution: no Co-Authored-By
+  or "Generated with" trailers, no mention of AI tooling.
 - Simulator event order is documented and changed only with a version bump.

@@ -24,12 +24,17 @@ source .venv/bin/activate   # Python 3.12 via uv
 ruff check . && ruff format --check . && pytest
 ```
 
-## Current state (2026-10-12)
-- Phase 0 / Week 1. Scaffold done and pushed (github.com/agiri5/decision-aware-forecasting).
+## Current state (2026-10-19)
+- Phase 1 / Week 1 ending. Simulator v1.0.0 built and pushed: spec `docs/simulator_spec.md`,
+  `params.yaml`, `simulator/`, tests (a)-(k) passing, decision log D1-D5 in `docs/assumptions.md`.
+  Draft LangGraph decision graph in `agent/` (topology not frozen until the pre-registration).
+- G1 simulator review (Fable) due Oct 19: prompt in `docs/project/private/` (local only).
 - Open: dataset license checks (TODOs in `data/README.md`), auto-parts dataset not downloaded,
-  billing alarms/spend limits.
-- Next: simulator spec (event order, cost accounting, `params.yaml`), then build the weekly
-  simulator and required tests (a)-(f) from file 03. G1 simulator review due by Oct 19.
+  billing alarms/spend limits, `failure_order_qty` and over-budget tool-request rule for the
+  pre-registration, whether to reword/untrack CLAUDE.md in git history.
+- Next (Week 2): fix G1 findings; M5 loading, subsample and Syntetos-Boylan segmentation;
+  `forecasting/bootstrap.py` (shared residual bootstrap, D1); baselines (seasonal naive,
+  Croston/TSB); LightGBM.
 
 ## Conventions
 - Git identity is repo-local (agiri5). Commit messages carry no tool attribution: no Co-Authored-By

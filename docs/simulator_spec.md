@@ -163,13 +163,15 @@ over the sample paths. Order `S_t − IP_t` if `IP_t ≤ s_t`, else 0. Not built
 ```python
 SIM_VERSION = "1.0.0"
 
+
 def simulate(
-    demand: np.ndarray,           # int, shape (T,), weekly demand for the window
+    demand: np.ndarray,  # int, shape (T,), weekly demand for the window
     policy: Policy,
-    params: SimParams,            # parsed from params.yaml, validated
+    params: SimParams,  # parsed from params.yaml, validated
     seed: int,
     series_id: str,
     initial_on_hand: int | None = None,  # None -> policy's S at t=0 (steady-state start)
+    unit_price: float | None = None,  # per-series price scaling h and p (implementation addition)
 ) -> SimResult: ...
 ```
 `SimResult` holds per-week arrays (`on_hand_start, received, on_hand_avail, ordered,
@@ -189,15 +191,21 @@ The simulator's own randomness is lead times only. Demand is historical (or supp
 @dataclass(frozen=True)
 class State:
     t: int
-    on_hand: int                  # after receipts (OH_t^avail)
+    on_hand: int  # after receipts (OH_t^avail)
     pipeline: tuple[tuple[int, int], ...]  # (arrival_week, qty)
     inventory_position: int
-    sales_history: np.ndarray     # s_0..s_{t-1} from this simulation (censored)
-    demand_history: np.ndarray    # d_0..d_{t-1} (copy, not a view of the full array)
+    sales_history: np.ndarray  # s_0..s_{t-1} from this simulation (censored)
+    demand_history: np.ndarray  # d_0..d_{t-1} (copy, not a view of the full array)
     lead_time_pmf: dict[int, float]
+    seed: (
+        int  # implementation addition: lets BaseStock derive its planning RNG per (seed, series, t)
+    )
+    series_id: str  # implementation addition (see above)
+
 
 class Policy(Protocol):
     def order(self, state: State) -> int: ...
+
 
 class ForecastProvider(Protocol):
     # Joint demand sample paths for weeks origin..origin+H-1, using data through origin-1.
@@ -281,7 +289,7 @@ Notes:
 | Test | Setup | Assertion | Proves | Does **not** prove |
 |---|---|---|---|---|
 | (a) newsvendor | T = 1, no ordering, `initial_on_hand = S`, discrete demand pmf (Poisson(10), uniform{0..20}). Run once per demand value and weight by the pmf (exact, no Monte Carlo) | argmin_S expected cost = smallest S with F(S) ≥ p/(p+h); min cost = closed form `h·E(S−D)+ + p·E(D−S)+` to 1e-9 | single-period cost accounting and serve logic | anything about lead times or dynamics |
-| (b) zero variance | constant d, deterministic-lead-time config L ∈ {1,2,4}, R ∈ {1,2}, oracle provider returning identical constant paths (so the MC quantile is exact), start at steady state | at S* = d·(L+R): zero lost sales and zero holding cost after warm-up; at S*+1: zero lost, holding = h every week (both modes); at S*−1: backorder mode backlogs exactly 1 unit every week, lost-sales mode loses exactly 1 unit every L+R weeks (the lost unit is not re-ordered against; verified by a throwaway script for R = 1 only, derive R = 2 counts when writing the test) | protection-interval timing (no off-by-one in receive/order/serve order) | stochastic behaviour |
+| (b) zero variance | constant d, deterministic-lead-time config L ∈ {1,2,4}, R ∈ {1,2}, oracle provider returning identical constant paths (so the MC quantile is exact), start at steady state | at S* = d·(L+R): zero lost sales; holding averages h·d·(R−1)/2 per week over whole review cycles (exactly zero for R = 1; for R > 1 stock legitimately sits on hand inside a cycle, so the earlier "zero holding for R ∈ {1,2}" was wrong for R = 2); at S*+1: zero lost, exactly h more holding every week (both modes); at S*−1: R = 1 backorder mode backlogs exactly 1 unit every week, R = 1 lost-sales mode loses exactly 1 unit every L+R weeks (the lost unit is not re-ordered against); for R = 2 the test only asserts that shortage appears | protection-interval timing (no off-by-one in receive/order/serve order) | stochastic behaviour |
 | (c) unit conservation | random demand, stochastic L (incl. shocks), `RandomOrders`, both modes | every week: `OH^avail = OH^start + r`, `OH^end = OH^avail − s`, `s + ℓ = d`, `pipeline_end = pipeline_start + q − r`; cumulative: `OH_0 + Σq = OH_T^end + pipeline_T + Σs` | no units created/destroyed | that costs are priced correctly |
 | (d) reproducibility | same (seed, series_id) twice; different seeds; two different policies with same seed | identical arrays; lead-time draws differ across seeds; **identical A_t schedule across policies** (CRN) | determinism and fair pairing | statistical quality of RNG |
 | (e) base-stock cross-check | backorder mode, deterministic-lead-time config, R = 1, iid Poisson(λ), FixedOrderUpTo(S), T = 200,000 | long-run cost/week within 3 MC std errors of `h·E(S−D_{L+1})+ + p·E(D_{L+1}−S)+`, `D_{L+1} ~ Poisson((L+1)λ)`; optimal S matches critical-ratio quantile. Optional: same against Stockpyl (MIT; check before adding) | multi-period pipeline, IP, timing against theory | lost-sales optimality (no closed form). Lost-sales mode is covered only by (a)-(d) and (f) |
@@ -302,6 +310,21 @@ Additional cheap tests (recommended; each guards a downstream-invalidating bug):
 - (k) **no summed quantiles**: with iid Poisson(10) paths, deterministic L = 2, R = 1, S_t
   matches the exact quantile of Poisson(30) within 1 unit (37 at τ = 0.9, 43 at τ = 0.99). It
   must be well below the sum of per-week quantiles (42 and 54). This guards against regression to the forbidden method.
+
+### Implementation notes (build of 2026-10-13; the event order and cost accounting are unchanged)
+- `initial_on_hand=None` with `simulation.initial_on_hand: steady_state` calls the optional
+  policy hook `initial_level(state0)`; policies without it (ZeroPolicy, RandomOrders) require an
+  explicit `initial_on_hand`. Optional `reset()` is called at the start of each run.
+- `State` also carries `seed` and `series_id`; `simulate()` also accepts `unit_price`.
+- Planning streams: `SeedSequence([seed, crc32(series_id), t, 1])` is spawned into two child
+  streams, one for the E_n draws and one passed to the provider, so E_n is identical across
+  forecasters regardless of how many random numbers the provider consumes.
+- Lead-time rounding is half-up. Both lognormal and shock draws always happen, so changing cv or
+  shock_prob does not reshuffle the other stream.
+- In backorder mode `sold == demand`, `lost == 0`, `on_hand_*` is net inventory and `backlog_end`
+  holds the backlog; `fill_rate` is NaN there.
+- Test (e) is split into 200 iid runs of 1,000 weeks (200,000 weeks total) because `State`
+  history copies make a single 200,000-week run quadratic.
 
 ## 10. Known limitations (carry into README and write-ups)
 - Historical sales are censored demand. The simulator treats them as true demand, so simulated

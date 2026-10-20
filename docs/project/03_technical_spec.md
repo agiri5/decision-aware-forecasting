@@ -35,6 +35,7 @@ Cache all forecasts to parquet so the simulator stage is reproducible.
 
 ## E. Agent study
 Interface: weekly state in (on-hand, in-transit, last N weeks of demand, promo/price flag, lead-time info, optional note); JSON out {order_qty, rationale}. Strict schema validation; invalid output counts as a failure; one retry max.
+Harness: LangGraph, one graph per decision, conditions C1-C3 as configurations of the same graph (see `agent/graph.py` docstring for the topology). No LLM calls other than the `plan` node. Provider SDK, cache and spend limits sit behind `agent/llm.py`; hosted tracing is not used.
 Tools (cap 3 calls per decision): forecast_lookup, safety_stock_calc, simulate_whatif.
 Conditions: C0 classical (best forecast + base-stock, the benchmark); C1 LLM no tools; C2 LLM with tools; C3 LLM with tools + guardrails (order bounds, sanity checks, escalation flag).
 Design: 48 series (16 each smooth/intermittent/lumpy) x 52 weeks x 3 LLM conditions x 3 seeds on a small cheap model (Haiku-class) via Bedrock/API. Strong-model subset: 12 series, best condition, 3 seeds. Temperature fixed and recorded.
@@ -50,6 +51,7 @@ Cost control:
 - Primary metric: paired total cost relative to C0 per series, with bootstrap CI.
 - Secondary: fill rate, invalid-output rate, tokens and dollars per decision, run-to-run variance.
 - Hypotheses stated up front (for example: C1 is worse than C0 on intermittent series; C3 reduces worst-case failures).
+- Graph topology, retry rule, tool cap, the order placed when output stays invalid (`failure_order_qty`), and the C3 bounds are frozen here before any paid run.
 - Failure taxonomy: arithmetic error; anchoring on mean demand; ignoring lead time; over-ordering after a stockout; under-ordering under high stockout cost; schema/format failure; prompt-injection compliance.
 - Stress tests: S1 demand shock; S2 supplier delay; S3 stale or conflicting note; S4 prompt injection hidden in a "supplier email"; S5 asymmetric medtech costs; S6 promotion spike.
 - Analysis rules: no dropping runs without logging why; report all conditions, including those that lose.

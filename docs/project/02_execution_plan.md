@@ -8,7 +8,7 @@
 | 3 | Oct 26-Nov 1 | Agent design, prompts, tools, pre-registration, stress scenarios | G3 pre-registration review by Nov 1 |
 | 4 | Nov 2-8 | Mocked-LLM agent runner + tests; Bedrock cost test; foundation-model forecasts | Mocked runner ready (Nov 5) |
 | 5 | Nov 9-15 | Finalize backtests; forecasts into simulator; core finding; medtech analog; Favorita | |
-| 6 | Nov 16-22 | Sensitivity sweeps; Streamlit demo; write-up #1; freeze and tag release | G2 claim review, G4 write-up #1 review |
+| 6 | Nov 16-22 | Sensitivity sweeps; Streamlit demo (optional, cuttable panel: replay of an agent decision trace beside the classical policy's order for the same week, built from stored traces; decide after write-up #1 is drafted); write-up #1; freeze and tag release | G2 claim review, G4 write-up #1 review |
 | 7 | Nov 23-29 | Agent pilot (5 series x 10 weeks), cost extrapolation, start main run (short holiday week) | Pilot go/no-go |
 | 8 | Nov 30-Dec 6 | Main agent run finishes; strong-model subset | Spend check |
 | 9 | Dec 7-13 | Stress tests, failure taxonomy, design rule | |
@@ -38,6 +38,7 @@ Exit: release tagged, write-up published, demo deployed.
 
 ## Phase 5: Agent (design Wk 3-4, runs Wk 7-8)
 Design and pre-register before Nov 1; mocked-LLM runner by Nov 5; real pilot then main run on Bedrock/API.
+Agent harness: the per-decision loop (plan, tools, validate, one retry, C3 guardrails) is a LangGraph graph (`agent/graph.py`, pinned version, local JSONL traces only, no hosted tracing). The LLM client, disk cache and spend limits stay outside the graph behind `agent/llm.py`. Graph topology is frozen in the pre-registration. Fallback if behind: the same interface as a plain Python loop (cut before anything on the never-cut list).
 Exit: results with CIs, spend within budget, rerun log.
 
 ## Phase 6: Stress tests (Week 9)

@@ -11,12 +11,14 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
+# Pinned: LangGraph changes quickly. Hosted tracing (LangSmith) is deliberately not used.
+agent = ["langgraph==1.2.15"]
 
 [tool.setuptools.packages.find]
 include = ["simulator*", "forecasting*", "analysis*", "agent*"]
 
 [tool.pytest.ini_options]
-testpaths = ["simulator/tests"]
+testpaths = ["simulator/tests", "agent/tests"]
 addopts = "-q"
 
 [tool.ruff]

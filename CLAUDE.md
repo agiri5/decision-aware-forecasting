@@ -34,4 +34,5 @@ ruff check . && ruff format --check . && pytest
 ## Conventions
 - Git identity is repo-local (agiri5). Commit messages carry no tool attribution: no Co-Authored-By
   or "Generated with" trailers, no mention of AI tooling.
+- Agent harness uses LangGraph (pin in `pyproject.toml` extra `agent`). No hosted tracing (LangSmith); no extra LLM calls beyond the `plan` node. See D5 in `docs/assumptions.md`.
 - Simulator event order is documented and changed only with a version bump.

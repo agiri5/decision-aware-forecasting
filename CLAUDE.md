@@ -24,17 +24,24 @@ source .venv/bin/activate   # Python 3.12 via uv
 ruff check . && ruff format --check . && pytest
 ```
 
-## Current state (2026-10-19)
-- Phase 1 / Week 1 ending. Simulator v1.0.0 built and pushed: spec `docs/simulator_spec.md`,
-  `params.yaml`, `simulator/`, tests (a)-(k) passing, decision log D1-D5 in `docs/assumptions.md`.
+## Current state (2026-10-22)
+- Phase 1 / Week 2 started. Simulator v1.1.0 built and pushed: spec `docs/simulator_spec.md`,
+  `params.yaml`, `simulator/`, tests (a)-(k) passing, decision log D1-D11 in `docs/assumptions.md`.
   Draft LangGraph decision graph in `agent/` (topology not frozen until the pre-registration).
-- G1 simulator review (Fable) due Oct 19: prompt in `docs/project/private/` (local only).
+- G1 simulator review done and triaged (D6-D11): planning now uses the pooled lead-time
+  estimator (N = 2,000 core, 50,000 medtech arm, `medtech_analog.n_paths`); lead-time streams
+  split so schedules are prefix-stable in window length. Documented limitations: critical-ratio
+  bias under lost sales (D6), the agent seeing arrival weeks of in-transit orders (D7).
 - Open: dataset license checks (TODOs in `data/README.md`), auto-parts dataset not downloaded,
   billing alarms/spend limits, `failure_order_qty` and over-budget tool-request rule for the
-  pre-registration, whether to reword/untrack CLAUDE.md in git history.
-- Next (Week 2): fix G1 findings; M5 loading, subsample and Syntetos-Boylan segmentation;
-  `forecasting/bootstrap.py` (shared residual bootstrap, D1); baselines (seasonal naive,
-  Croston/TSB); LightGBM.
+  pre-registration, whether the agent sees arrival weeks (D7) and censored sales vs demand
+  (spec section 11), whether to reword/untrack CLAUDE.md in git history, untested fixed order
+  cost K and unit_price scaling.
+- Next (Week 2): M5 loading, subsample and Syntetos-Boylan segmentation;
+  `forecasting/bootstrap.py` (shared residual bootstrap, D1) with two tests written first: a
+  provider-leakage test (paths for origin t identical on the full series and on the series
+  truncated at t-1, same rng) and a check that it draws only from the `rng` it is given; then
+  baselines (seasonal naive, Croston/TSB); LightGBM. Re-time planning cost with the real bootstrap.
 
 ## Conventions
 - Git identity is repo-local (agiri5). Commit messages carry no tool attribution: no Co-Authored-By

@@ -63,3 +63,4 @@ optional_ss_arm:
 medtech_analog:
   stockout_to_holding_ratio: [20, 50, 100]
   service_target: 0.99
+  n_paths: 50000              # overrides policy.n_paths in this arm: tau up to 0.99 needs it (D11)

@@ -1,8 +1,9 @@
 """Ordering policies (spec section 5).
 
 BaseStock is the benchmark policy: order-up-to S, where S is the tau-quantile of Monte Carlo
-protection-interval demand over (E + R) weeks. tau = p/(p+h) in the core design. The same
-heuristic is used for every forecaster. (s,S) is not built in v1 (docs/assumptions.md, D2).
+protection-interval demand over (E + R) weeks, E ~ the effective lead-time pmf. tau = p/(p+h)
+in the core design. The same heuristic is used for every forecaster. (s,S) is not built in v1
+(docs/assumptions.md, D2).
 """
 
 from __future__ import annotations
@@ -41,24 +42,35 @@ class BaseStock:
         self.levels = {}
 
     def level(self, state: State) -> int:
-        """S_t = ceil(tau-quantile of protection-interval demand), spec section 5.1."""
+        """S_t = ceil(tau-quantile of protection-interval demand), spec section 5.1.
+
+        Pooled estimator: every sample path is summed over the protection interval for each
+        effective lead time e in the pmf support (k = e + R weeks), and weighted by pmf(e) / N.
+        This targets the same mixture distribution as drawing one E_n per path, without the
+        lead-time sampling noise (G1 finding 1, D11).
+        """
         n = self.n_paths
-        # Spawned child streams: E_n draws never depend on how many numbers the provider
-        # consumes, so every forecaster sees identical E_n at the same (seed, series, t).
+        # Child 0 of the planning stream is unused (it fed the per-path E_n draws before v1.1.0);
+        # the provider keeps child 1, so its paths are unchanged.
         root = np.random.SeedSequence([state.seed, series_key(state.series_id), state.t, 1])
-        ss_lead, ss_paths = root.spawn(2)
-        support = np.array(sorted(state.lead_time_pmf), dtype=np.int64)
-        probs = np.array([state.lead_time_pmf[int(e)] for e in support])
-        e_n = np.random.default_rng(ss_lead).choice(support, size=n, p=probs / probs.sum())
+        _, ss_paths = root.spawn(2)
         paths = self.provider.sample_paths(
             state.series_id, state.t, n, np.random.default_rng(ss_paths)
         )
         if paths.shape != (n, self.horizon):
             raise ValueError(f"provider returned {paths.shape}, expected {(n, self.horizon)}")
-        k_n = e_n + self.review_period  # protection interval in weeks, <= horizon by validation
-        cum = np.cumsum(paths, axis=1)
-        x_n = cum[np.arange(n), k_n - 1]
-        return int(np.ceil(np.quantile(x_n, self.tau, method="inverted_cdf")))
+        support = sorted(state.lead_time_pmf)
+        probs = np.array([state.lead_time_pmf[e] for e in support])
+        probs = probs / probs.sum()
+        cum = np.cumsum(paths, axis=1)  # cum[:, k-1] = demand over the first k weeks
+        sums = np.concatenate([cum[:, e + self.review_period - 1] for e in support])
+        weights = np.repeat(probs / n, n)
+        order = np.argsort(sums, kind="stable")
+        cdf = np.cumsum(weights[order])
+        # Smallest sample value with weighted CDF >= tau (the "inverted_cdf" rule); the small
+        # tolerance absorbs float error in the cumulative weights.
+        idx = min(int(np.searchsorted(cdf, self.tau - 1e-12, side="left")), len(sums) - 1)
+        return int(np.ceil(sums[order][idx]))
 
     def initial_level(self, state0: State) -> int:
         return self.level(state0)

@@ -1,4 +1,4 @@
-"""Weekly single-item inventory simulator. Implements docs/simulator_spec.md v1.0.0.
+"""Weekly single-item inventory simulator. Implements docs/simulator_spec.md v1.1.0.
 
 Event order each week t (normative, changed only with a SIM_VERSION bump):
   1. Receive orders arriving at t.

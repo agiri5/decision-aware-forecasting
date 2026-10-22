@@ -45,6 +45,17 @@ def test_common_random_numbers_across_policies():
     np.testing.assert_array_equal(a.lead_draws, c.lead_draws)
 
 
+def test_lead_times_prefix_stable_in_window_length():
+    """CRN across window lengths: weeks 0..59 of a 120-week run face the same supplier as a
+    60-week run (G1 finding 6; e.g. a 10-week agent pilot vs a full-window baseline)."""
+    short_demand = DEMAND[:60]
+    for seed in range(5):
+        short = simulate(short_demand, FixedOrderUpTo(30), PARAMS, seed=seed, series_id="x")
+        long = simulate(DEMAND, FixedOrderUpTo(30), PARAMS, seed=seed, series_id="x")
+        np.testing.assert_array_equal(short.lead_draws, long.lead_draws[:60], err_msg=f"{seed=}")
+        np.testing.assert_array_equal(short.arrival_week, long.arrival_week[:60])
+
+
 def test_independent_of_python_hash_seed():
     """Results must not depend on PYTHONHASHSEED (guards against using hash())."""
     script = textwrap.dedent(

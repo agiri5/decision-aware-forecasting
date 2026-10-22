@@ -2,7 +2,7 @@
 # assumption chosen for a reference implementation. None is an observed value for any company,
 # product or supplier. Spec: docs/simulator_spec.md (section 7). Decision log: docs/assumptions.md.
 
-sim_version: "1.0.0"
+sim_version: "1.1.0"
 
 simulation:
   mode: lost_sales            # lost_sales | backorder (backorder is for validation tests only)

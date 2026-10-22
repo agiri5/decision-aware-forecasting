@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 
-SIM_VERSION = "1.0.0"
+SIM_VERSION = "1.1.0"
 
 DEFAULT_PARAMS_PATH = Path(__file__).resolve().parents[1] / "params.yaml"
 

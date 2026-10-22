@@ -23,23 +23,27 @@ def series_key(series_id: str) -> int:
     return zlib.crc32(series_id.encode())
 
 
-def lead_time_rng(seed: int, series_id: str) -> np.random.Generator:
-    return np.random.default_rng(np.random.SeedSequence([seed, series_key(series_id), 0]))
+def lead_time_key(seed: int, series_id: str) -> list[int]:
+    return [seed, series_key(series_id), 0]
 
 
-def draw_lead_times(lt: LeadTimeParams, n: int, rng: np.random.Generator) -> np.ndarray:
+def draw_lead_times(lt: LeadTimeParams, n: int, key: list[int]) -> np.ndarray:
     """Per-week sampled lead times L_t (integer weeks), t = 0..n-1.
 
     L_t = clip(round(X_t) + shock_t * shock_weeks, min_weeks, max_weeks), X_t lognormal with
-    the given mean/cv. Rounding is half-up. The rng stream layout is identical for every config
-    (both draws always happen), so changing cv or shock_prob does not reshuffle other draws.
+    the given mean/cv. Rounding is half-up. The lognormal and shock draws use two separate
+    streams (`key` + [0] and `key` + [1]), so L_t for weeks 0..k-1 does not depend on n (a short
+    run is an exact prefix of a longer one, G1 finding 6) and changing cv or shock_prob does not
+    reshuffle the other stream.
     """
     if lt.distribution == "deterministic":
         return np.full(n, lt.fixed_weeks, dtype=np.int64)
     sigma2 = np.log1p(lt.cv**2)
     mu = np.log(lt.mean_weeks) - sigma2 / 2.0
-    x = rng.lognormal(mean=mu, sigma=np.sqrt(sigma2), size=n)
-    shock = rng.random(n) < lt.shock_prob
+    rng_x = np.random.default_rng(np.random.SeedSequence([*key, 0]))
+    rng_shock = np.random.default_rng(np.random.SeedSequence([*key, 1]))
+    x = rng_x.lognormal(mean=mu, sigma=np.sqrt(sigma2), size=n)
+    shock = rng_shock.random(n) < lt.shock_prob
     raw = np.floor(x + 0.5).astype(np.int64) + shock.astype(np.int64) * lt.shock_weeks
     return np.clip(raw, lt.min_weeks, lt.max_weeks)
 
@@ -54,7 +58,7 @@ def lead_time_schedule(
     lt: LeadTimeParams, n: int, seed: int, series_id: str
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (L_t draws, arrival weeks A_t) for weeks 0..n-1."""
-    draws = draw_lead_times(lt, n, lead_time_rng(seed, series_id))
+    draws = draw_lead_times(lt, n, lead_time_key(seed, series_id))
     return draws, arrival_schedule(draws)
 
 
@@ -62,9 +66,8 @@ def lead_time_schedule(
 def _effective_pmf_cached(lt: LeadTimeParams) -> tuple[tuple[int, float], ...]:
     if lt.distribution == "deterministic":
         return ((lt.fixed_weeks, 1.0),)
-    rng = np.random.default_rng(np.random.SeedSequence([lt.pmf_estimation_seed]))
     n = lt.pmf_estimation_weeks
-    draws = draw_lead_times(lt, n, rng)
+    draws = draw_lead_times(lt, n, [lt.pmf_estimation_seed])
     eff = arrival_schedule(draws) - np.arange(n, dtype=np.int64)
     eff = eff[_PMF_BURN_IN:]
     support, counts = np.unique(eff, return_counts=True)

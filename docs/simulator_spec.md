@@ -1,4 +1,4 @@
-# Simulator Spec (v1.0.0, draft for G1)
+# Simulator Spec (v1.1.0, after G1 review)
 
 Weekly, single-item, single-location, periodic-review inventory simulator with lost sales.
 Plain Python/NumPy. This document is the contract for `simulator/`; the code must match it, and
@@ -97,8 +97,11 @@ pmf of E_t. Since E_t ≤ max_weeks, the support is within `[min_weeks, max_week
 depends only on the lead-time params, is cached per params hash, and is what policies plan with
 (section 5.1). Every run logs the realized mean/max of E_t.
 
-Known approximation: planning draws E from the marginal pmf independently per sample path. It
-ignores serial correlation of E_t, which the cumulative max introduces. Stated, not corrected.
+Planning draws E from the marginal pmf independently per sample path. For R = 1 and a fixed S
+this is exact in backorder mode: the order covering a given week was placed E weeks earlier, and
+under stationarity P(age of the covering order >= k) = P(E >= k), so only the marginal matters.
+Serial correlation of E_t, which the cumulative max introduces, matters only through S_t varying
+over time, R > 1 and lost sales. Stated, not corrected.
 
 **Deterministic config** (tests (a), (b), (e)): `lead_time.distribution: deterministic` with
 `fixed_weeks: L`. Then `L_t = L`, `A_t = t + L`, and the effective pmf is a point mass at L.
@@ -118,11 +121,13 @@ implemented in v1; its addition is a version bump.
 At review week t:
 1. Get `N = policy.n_paths` (default 2,000) demand sample paths `Y ∈ ℝ^{N×H}`, H = 8, for weeks
    t..t+H−1, using data through t−1 (section 6.2).
-2. For each path n, draw an effective lead time `E_n` from the effective pmf (section 4), so the
-   protection interval is `k_n = E_n + R`.
-3. Protection-interval demand `X_n = Σ_{j=0}^{k_n−1} Y[n, j]`.
-4. `S_t = ceil(empirical τ-quantile of {X_n})` (numpy `method="inverted_cdf"`, i.e. the smallest
-   sample value with empirical CDF ≥ τ).
+2. For every effective lead time `e` in the support of the effective pmf (section 4), the
+   protection interval is `k = e + R` weeks. Pooled estimator (v1.1.0, D11): no lead time is
+   drawn per path; every path is used for every `e`.
+3. Protection-interval demand `X_{n,e} = Σ_{j=0}^{k−1} Y[n, j]`, with weight `pmf(e) / N`.
+4. `S_t = ceil(weighted τ-quantile of {X_{n,e}})`: the smallest sample value whose weighted CDF
+   is ≥ τ (the weighted form of numpy `method="inverted_cdf"`). This estimates the same mixture
+   distribution as drawing one `E_n` per path, without the lead-time sampling noise.
 5. `q_t = max(0, S_t − IP_t)`.
 
 τ is set by `policy.quantile_source`:
@@ -131,15 +136,18 @@ At review week t:
   quantile. Achieved fill rate is reported next to it; CSL and fill rate are different measures,
   and the write-up must not conflate them.
 
-Planning randomness: path generation and E_n draws use a **planning RNG** seeded from
+Planning randomness: path generation uses a **planning RNG** seeded from
 `SeedSequence([seed, crc32(series_id), t, 1])`. This is separate from the lead-time RNG, so CRN of
 the supply schedule (section 4) is unaffected. S_t is reproducible, and the same (seed, series, t)
-gives the same paths for every τ (needed for test (f)(i)). Each forecaster gets identical E_n
-draws at the same (seed, series, t).
+gives the same paths for every τ (needed for test (f)(i)). Lead times are not sampled in planning
+(pooled estimator), so the only planning randomness is the forecast paths.
 
-Monte Carlo error: with N = 2,000 and τ = 0.99, about 20 paths lie above the quantile. Test (j)
-(section 9) bounds the MC error. Raise N for the medtech arm if that test shows S_t moving by
-more than 1 unit between planning seeds.
+Monte Carlo error: test (j)(3) (section 9) bounds it at at most 1 unit between 5 planning seeds.
+Measured (Poisson(10) paths, default lead time, G1 finding 1): with the earlier per-path-E_n
+estimator the spread at τ = 0.99 was up to 5 units at N = 2,000 and 1 at N = 50,000. With the
+pooled estimator, N = 2,000 passes at τ = 0.9 and N = 50,000 gives zero spread at τ = 0.99.
+`policy.n_paths` = 2,000 for the core arm; the medtech arm sets `medtech_analog.n_paths` = 50,000
+(about 34 ms per planning call against about 1.3 ms at 2,000).
 
 Known simplification, to be stated in the write-ups: under lost sales this policy is a
 heuristic, not the optimum. It uses the backorder critical ratio and ignores serial correlation
@@ -161,7 +169,7 @@ over the sample paths. Order `S_t − IP_t` if `IP_t ≤ s_t`, else 0. Not built
 
 ### 6.1 Simulator
 ```python
-SIM_VERSION = "1.0.0"
+SIM_VERSION = "1.1.0"
 
 
 def simulate(
@@ -180,11 +188,15 @@ order_cost`), the lead-time draws, and metadata (`sim_version`, `params_hash`, `
 `series_id`, `mode`, `tau`, `quantile_source`, `n_paths`, effective-pmf hash, per-week `S_t`).
 
 RNG streams (never Python's `hash()`, which is salted per process):
-- lead times: `SeedSequence([seed, zlib.crc32(series_id.encode()), 0])`
-- planning (policy side): `SeedSequence([seed, crc32(series_id), t, 1])`
-- residual bootstrap (forecast side): `SeedSequence([seed, crc32(series_id), t, 2])`
+- lead times: two independent streams, `SeedSequence([seed, zlib.crc32(series_id.encode()), 0, 0])`
+  for the lognormal draws and `SeedSequence([seed, crc32(series_id), 0, 1])` for the shocks, so L_t
+  for weeks 0..k-1 does not depend on the window length (v1.1.0, G1 finding 6)
+- planning (policy side): `SeedSequence([seed, crc32(series_id), t, 1])`, spawned into two child
+  streams: the first for the E_n draws, the second passed to the provider as its `rng`. There is no
+  separate "bootstrap" stream: the shared residual bootstrap must draw only from the `rng` it is
+  given (G1 finding 7)
 
-The simulator's own randomness is lead times only. Demand is historical (or supplied by tests).
+The simulator's own randomness is lead times only; the policy adds planning randomness (5.1). Demand is historical (or supplied by tests).
 
 ### 6.2 Policy and forecast provider
 ```python
@@ -259,10 +271,10 @@ All values below are **SYNTHETIC** and live only in `params.yaml`.
 | delay shock | prob 0.05, +2 weeks | occasional late shipment | prob 0, 0.05, 0.15 |
 | lead time bounds | 1..6 weeks | max + R ≤ 8 | - |
 | service target | 0.95 (0.99 in medtech analog) | reported against in core; used as τ only in the `service_target` arm | `service_target` arm |
-| planning paths N | 2,000 | MC quantile of protection-interval demand | raise if test (j) fails |
+| planning paths N | 2,000 (core); 50,000 (medtech arm) | MC quantile of protection-interval demand | raise if test (j)(3) fails |
 | warm-up | 8 weeks, excluded from metrics | flush initial conditions | - |
 | evaluation window | 52 weeks | one seasonal cycle | - |
-| seeds | 0, 1, 2 | lead-time draws only | - |
+| seeds | 0, 1, 2 | seed the lead-time draws and the planning Monte Carlo (section 5.1) | - |
 
 Notes:
 - Policies depend only on p/h, R and the lead-time distribution. h sets the cost **scale**, which
@@ -305,8 +317,10 @@ Additional cheap tests (recommended; each guards a downstream-invalidating bug):
   pipeline is always sorted by arrival week, and no order is received before an earlier-placed one).
 - (j) **planning MC**: (1) the effective pmf sums to 1, its support is within
   `[min_weeks, max_weeks]`, and its mean is ≥ the mean of the clipped L_t; (2) with the
-  deterministic config, the pmf is a point mass; (3) for τ = 0.99 and a Poisson path provider,
-  S_t varies by at most 1 unit across 5 planning seeds at the default N.
+  deterministic config, the pmf is a point mass; (3) with the default (stochastic) lead-time config and a Poisson path provider, S_t varies by
+  at most 1 unit across 5 planning seeds, over 20 origins: at τ = 0.9 with the core N, and at
+  τ = 0.99 with the medtech N. A deterministic-config variant is kept but cannot trigger the rule
+  (G1 finding 1); (4) the pooled level is within 1 unit of the exact mixture quantile of Poisson sums.
 - (k) **no summed quantiles**: with iid Poisson(10) paths, deterministic L = 2, R = 1, S_t
   matches the exact quantile of Poisson(30) within 1 unit (37 at τ = 0.9, 43 at τ = 0.99). It
   must be well below the sum of per-week quantiles (42 and 54). This guards against regression to the forbidden method.

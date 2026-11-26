@@ -24,7 +24,7 @@ source .venv/bin/activate   # Python 3.12 via uv
 ruff check . && ruff format --check . && pytest
 ```
 
-## Current state (2026-10-22)
+## Current state (2026-11-26)
 - Phase 1 / Week 2 started. Simulator v1.1.0 built and pushed: spec `docs/simulator_spec.md`,
   `params.yaml`, `simulator/`, tests (a)-(k) passing, decision log D1-D11 in `docs/assumptions.md`.
   Draft LangGraph decision graph in `agent/` (topology not frozen until the pre-registration).
@@ -32,13 +32,20 @@ ruff check . && ruff format --check . && pytest
   estimator (N = 2,000 core, 50,000 medtech arm, `medtech_analog.n_paths`); lead-time streams
   split so schedules are prefix-stable in window length. Documented limitations: critical-ratio
   bias under lost sales (D6), the agent seeing arrival weeks of in-transit orders (D7).
-- Open: dataset license checks (TODOs in `data/README.md`), auto-parts dataset not downloaded,
+- M5 loader and sample built (D12): `forecasting/m5.py`, `segmentation.py`, `subsample.py`,
+  `m5_sample.py` (`python -m forecasting.m5_sample`, writes gitignored
+  `data/processed/m5_sample_series.csv`), tests in `forecasting/tests/`. Weekly (277 Walmart
+  weeks), listing start from sell prices, four SB classes labelled on history before the last 52
+  weeks, n = 4,000 proportional over category x store. Eligible 24,117 of 30,490 (>= 104 listed
+  weeks). Sample segments: smooth 2,034, erratic 234, intermittent 1,403, lumpy 329.
+- Open: M5 allocation (proportional now vs equal per stratum), whether to oversample
+  erratic/lumpy (by-segment CIs will be wide), `min_history_weeks` = 104 (drops late launches),
+  unit price (needs the training window), dataset license checks (TODOs in `data/README.md`), auto-parts dataset not downloaded,
   billing alarms/spend limits, `failure_order_qty` and over-budget tool-request rule for the
   pre-registration, whether the agent sees arrival weeks (D7) and censored sales vs demand
   (spec section 11), whether to reword/untrack CLAUDE.md in git history, untested fixed order
   cost K and unit_price scaling.
-- Next (Week 2): M5 loading, subsample and Syntetos-Boylan segmentation;
-  `forecasting/bootstrap.py` (shared residual bootstrap, D1) with two tests written first: a
+- Next (Week 2): `forecasting/bootstrap.py` (shared residual bootstrap, D1) with two tests written first: a
   provider-leakage test (paths for origin t identical on the full series and on the series
   truncated at t-1, same rng) and a check that it draws only from the `rng` it is given; then
   baselines (seasonal naive, Croston/TSB); LightGBM. Re-time planning cost with the real bootstrap.

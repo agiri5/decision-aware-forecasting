@@ -18,7 +18,7 @@ agent = ["langgraph==1.2.15"]
 include = ["simulator*", "forecasting*", "analysis*", "agent*"]
 
 [tool.pytest.ini_options]
-testpaths = ["simulator/tests", "agent/tests"]
+testpaths = ["simulator/tests", "agent/tests", "forecasting/tests"]
 addopts = "-q"
 
 [tool.ruff]
